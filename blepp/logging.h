@@ -50,7 +50,7 @@ namespace BLEPP {
 	extern LogLevels log_level;
 
 	template <class T>
-	const T & log_no_uint8(const T &a) {
+	inline const T & log_no_uint8(const T &a) {
 		return a;
 	}
 
@@ -74,7 +74,7 @@ namespace BLEPP {
 	}
 
 	#define LOGVAR(Y, X) LOG(Y, #X << " = " << log_no_uint8(X))
-	#define LOGVARHEX(Y, X) LOG(Y, #X << " = " << std::hex <<log_no_uint8(X) <<std::dec)
+	#define LOGVARHEX(Y, X) LOG(Y, #X << " = " << std::hex << log_no_uint8(X) << std::dec)
 	#define LOG(X, Y) do { \
 		if (X <= BLEPP::log_level) \
 			log_line_header(X, __FUNCTION__, __LINE__, __FILE__) << Y << std::endl; \
@@ -85,7 +85,7 @@ namespace BLEPP {
 		int where;
 		const char *file;
 
-		EnterThenLeave(const char *s, int w, const char* f): who(s),where(w), file(f) {
+		EnterThenLeave(const char *s, int w, const char* f): who(s), where(w), file(f) {
 			if (Trace <= BLEPP::log_level)
 				log_line_header(Trace, who, where, file) << "entering" << std::endl;
 		}
