@@ -8,334 +8,272 @@
 #include <cerrno>
 #include <iomanip>
 
-using namespace std;
-
-namespace BLEPP
-{
-	class Span
-	{
+namespace BLEPP {
+	class Span {
 		private:
-			const uint8_t* begin_;
-			const uint8_t* end_;
+			const uint8_t *begin_;
+			const uint8_t *end_;
 
 		public:
-			Span(const std::vector<uint8_t>& d)
-			:begin_(d.data()),end_(begin_ + d.size())
-			{
-			}
+			Span(const std::vector<uint8_t> &d):
+				begin_(d.data()), end_(begin_ + d.size()) {}
 
-			Span(const Span&) = default;
+			Span(const Span &) = default;
 
-			Span pop_front(size_t length)
-			{
-				if(length > size())
+			/** Removes elements from the front and returns a span of the removed elements. */
+			Span pop_front(size_t length) {
+				if (length > size())
 					throw std::out_of_range("");
 					
 				Span s = *this;
-				s.end_ = begin_ + length;
-
-				begin_ += length;	
+				begin_ += length;
+				s.end_ = begin_;
 				return s;
-			}	
-			const uint8_t* begin() const
-			{
+			}
+
+			inline const uint8_t * begin() const {
 				return begin_;
 			}
-			const uint8_t* end() const
-			{
+
+			inline const uint8_t * end() const {
 				return end_;
 			}
 			
-			const uint8_t& operator[](const size_t i) const
-			{
-				if(i >= size())
+			const uint8_t & operator[](const size_t i) const {
+				if (i >= size())
 					throw std::out_of_range("");
 				return begin_[i];
 			}
 
-			bool empty() const
-			{
-				return size()==0;
+			inline bool empty() const {
+				return size() == 0;
 			}
 
-			size_t size() const
-			{
+			inline size_t size() const {
 				return end_ - begin_;
 			}
 
-			const uint8_t* data() const
-			{
+			inline const uint8_t * data() const {
 				return begin_;
 			}
 
-			const uint8_t& pop_front()
-			{
-				if(begin_ == end_)
+			const uint8_t & pop_front() {
+				if (begin_ == end_)
 					throw std::out_of_range("");
-
-				begin_++;
-				return *(begin_-1);
+				return *begin_++;
 			}
 	};
 
-	AdvertisingResponse::Flags::Flags(vector<uint8_t>&& s)
-	:flag_data(s)
-	{
-		//Remove the type field
+	AdvertisingResponse::Flags::Flags(std::vector<uint8_t> &&s): flag_data(s) {
+		// Remove the type field
 		flag_data.erase(flag_data.begin());
-		if(!flag_data.empty())
-		{
+
+		if (!flag_data.empty()) {
 			//See 4.0/4.C.18.1
-			LE_limited_discoverable =       flag_data[0] & (1<<0);
-			LE_general_discoverable =       flag_data[0] & (1<<1);
-			BR_EDR_unsupported =            flag_data[0] & (1<<2);
-			simultaneous_LE_BR_controller = flag_data[0] & (1<<3);
-			simultaneous_LE_BR_host =       flag_data[0] & (1<<4);
+			LE_limited_discoverable       = flag_data[0] & (1 << 0);
+			LE_general_discoverable       = flag_data[0] & (1 << 1);
+			BR_EDR_unsupported            = flag_data[0] & (1 << 2);
+			simultaneous_LE_BR_controller = flag_data[0] & (1 << 3);
+			simultaneous_LE_BR_host       = flag_data[0] & (1 << 4);
 		}
 	}
 
-	string to_hex(const Span& s)
-	{
+	std::string to_hex(const Span &s) {
 		return to_hex(s.data(), s.size());
 	}
 
-	HCIScanner::Error::Error(const string& why)
-	:std::runtime_error(why)
-	{	
+	HCIScanner::Error::Error(const std::string &why): std::runtime_error(why) {
 		LOG(LogLevels::Error, why);	
 	}
 
-	HCIScanner::IOError::IOError(const string& why, int errno_val)
-	:Error(why + ": " +   strerror(errno_val))
-	{
-	}
-		
-	HCIScanner::HCIScanner(bool start_scan)
-	:HCIScanner(start_scan, FilterDuplicates::Both, ScanType::Active)
-	{
-	}
+	HCIScanner::IOError::IOError(const std::string &why, int errno_val):
+		Error(why + ": " + strerror(errno_val)) {}
 
+	HCIScanner::HCIScanner(bool start_scan):
+		HCIScanner(start_scan, FilterDuplicates::Both, ScanType::Active) {}
 
-	HCIScanner::HCIScanner(bool start_scan, FilterDuplicates filtering, ScanType st, string device)
-	{
-		if(filtering == FilterDuplicates::Hardware || filtering == FilterDuplicates::Both)
-			hardware_filtering = true;
-		else
-			hardware_filtering = false;
+	HCIScanner::HCIScanner(bool start_scan, FilterDuplicates filtering, ScanType st, const std::string &device) {
+		hardware_filtering = filtering == FilterDuplicates::Hardware || filtering == FilterDuplicates::Both;
+		software_filtering = filtering == FilterDuplicates::Software || filtering == FilterDuplicates::Both;
 
-		if(filtering == FilterDuplicates::Software || filtering == FilterDuplicates::Both)
-			software_filtering = true;
-		else
-			software_filtering = false;
-
-		scan_type=st;
+		scan_type = st;
 
 		int	dev_id = 0;
-		if (device == "") {
-			//Get a route to any(?) BTLE adapter (?)
+
+		if (device == "")
+			// Get a route to any(?) BTLE adapter (?)
 			dev_id = hci_get_route(NULL);
-		}
-		else {
+		else
 			dev_id = hci_devid(device.c_str());
-		}
-		if (dev_id < 0) {
+
+		if (dev_id < 0)
 			throw HCIError("Error obtaining HCI device ID");
-		}
-		
-		//Open the device
-		//FIXME check errors
+
+		// Open the device
+		// FIXME check errors
 		hci_fd.set(hci_open_dev(dev_id));
 
-		if(start_scan)
+		if (start_scan)
 			start();
 	}
 
-	HCIScanner::HCIScanner()
-	:HCIScanner(true)
-	{
+	HCIScanner::HCIScanner(): HCIScanner(true) {}
 
-	}
-
-	void HCIScanner::start()
-	{
+	void HCIScanner::start() {
 		ENTER();
-		if(running)
-		{
+
+		if (running) {
 			LOG(Trace, "Scanner is already running");
 			return;
 		}
 
-		//Cadged from the hcitool sources. No idea what
-		//these mean
+		// Taken from the hcitool sources. No idea what these mean.
 		uint16_t interval = htobs(0x0010);
-		uint16_t window = htobs(0x0010);
+		uint16_t window   = htobs(0x0010);
 
-		//Address for the adapter (I think). Use a public address.
-		//other option is random. Works either way it seems.
+		// Address for the adapter (I think). Use a public address.
+		// Other option is random. Works either way it seems.
 		uint8_t own_type = LE_PUBLIC_ADDRESS;
 
 		//Don't use a whitelist (?)
 		uint8_t filter_policy = 0x00;
 
 		
-		//The 10,000 thing seems to be some sort of retry logic timeout
-		//thing. Number of miliseconds, but there are multiple tries
-		//where it gets reduced by 10ms each time. It's a bit odd.
+		// The 10,000 thing seems to be some sort of retry logic timeout
+		// thing. Number of miliseconds, but there are multiple tries
+		// where it gets reduced by 10ms each time. It's a bit odd.
 		int err = hci_le_set_scan_parameters(hci_fd, static_cast<int>(scan_type), interval, window,
-							own_type, filter_policy, 10000);
-		if(err < 0)
-		{
-			if(errno != EIO)
+		                                     own_type, filter_policy, 10000);
+
+		if (err < 0) {
+			if (errno != EIO)
 				throw IOError("Setting scan parameters", errno);
-			else
-			{
-				//If the BLE device is already set to scanning, then we get an IO error. So
-				//try turning it off and trying again. This bad state would happen, if, to pick
-				//like a *totally* hypothetical example, the program segged-out during scanning
-				//and so never cleaned up properly.
-				LOG(LogLevels::Warning, "Received I/O error while setting scan parameters.");
-				LOG(LogLevels::Warning, "Switching off HCI scanner");
-				err = hci_le_set_scan_enable(hci_fd, 0x00, 0x00, 10000);
-				if(err < 0)
-					throw IOError("Error disabling scan:", errno);
 
+			// If the BLE device is already set to scanning, then we get an IO error. So try
+			// turning it off and trying again. This bad state would happen, if, to pick like
+			// a *totally* hypothetical example, the program segfaulted during scanning and
+			// so never cleaned up properly.
+			LOG(LogLevels::Warning, "Received I/O error while setting scan parameters.");
+			LOG(LogLevels::Warning, "Switching off HCI scanner");
+			err = hci_le_set_scan_enable(hci_fd, 0x00, 0x00, 10000);
+			if (err < 0)
+				throw IOError("Error disabling scan:", errno);
 
-				err = hci_le_set_scan_parameters(hci_fd, static_cast<int>(scan_type), interval, window, own_type, filter_policy, 10000);
-				if(err < 0)
-					throw IOError("Error disabling scan:", errno);
-				else
-					LOG(LogLevels::Warning, "Setting scan parameters worked this time.");
+			err = hci_le_set_scan_parameters(hci_fd, static_cast<int>(scan_type), interval, window,
+			                                 own_type, filter_policy, 10000);
+			if (err < 0)
+				throw IOError("Error disabling scan:", errno);
 
-
-			}
+			LOG(LogLevels::Warning, "Setting scan parameters worked this time.");
 		}
 
 		LOG(LogLevels::Info, "Starting scanner");
 		scanned_devices.clear();
 
-		//Removal of duplicates done on the adapter itself
-		uint8_t filter_dup = hardware_filtering?0x01:0x00;
-		
-		
+		// Removal of duplicates done on the adapter itself
+		uint8_t filter_dup = hardware_filtering? 0x01 : 0x00;
+
 		//Set up the filters. 
 		socklen_t olen = sizeof(old_filter);
-		if (getsockopt(hci_fd, SOL_HCI, HCI_FILTER, &old_filter, &olen) < 0) 
+		if (getsockopt(hci_fd, SOL_HCI, HCI_FILTER, &old_filter, &olen) < 0)
 			throw IOError("Getting HCI filter socket options", errno);
 
-		
-		//Magic incantations to get scan events
-		struct hci_filter nf;
+		// Magic incantations to get scan events
+		hci_filter nf;
 		hci_filter_clear(&nf);
 		hci_filter_set_ptype(HCI_EVENT_PKT, &nf);
 		hci_filter_set_event(EVT_LE_META_EVENT, &nf);
 		if (setsockopt(hci_fd, SOL_HCI, HCI_FILTER, &nf, sizeof(nf)) < 0)
 			throw IOError("Setting HCI filter socket options", errno);
 
-
-		//device disable/enable duplictes ????
+		// Device disable/enable duplictes???
 		err = hci_le_set_scan_enable(hci_fd, 0x01, filter_dup, 10000);
-		if(err < 0)
+		if (err < 0)
 			throw IOError("Enabling scan", errno);
 
-		running=true;
+		running = true;
 	}
 
-	void HCIScanner::stop()
-	{
+	void HCIScanner::stop() {
 		ENTER();
-		if(!running)
-		{
+
+		if (!running)
 			return;
-		}
 
 		LOG(LogLevels::Info, "Cleaning up HCI scanner");
 		int err = hci_le_set_scan_enable(hci_fd, 0x00, 0x00, 10000);
 
-		if(err < 0)
+		if (err < 0)
 			throw IOError("Error disabling scan:", errno);
 
 		err = setsockopt(hci_fd, SOL_HCI, HCI_FILTER, &old_filter, sizeof(old_filter));
 
-		if(err < 0)
+		if (err < 0)
 			throw IOError("Error resetting HCI socket:", errno);
 
 		running = false;
 	}
 
-	int HCIScanner::get_fd() const
-	{
+	int HCIScanner::get_fd() const {
 		return hci_fd;
 	}
 
-		
-	HCIScanner::~HCIScanner()
-	{
-		try
-		{
+	HCIScanner::~HCIScanner() {
+		try {
 			stop();
-		}
-		catch(IOError&)
-		{
-		}
-	}
-	
-	HCIScanner::FilterEntry::FilterEntry(const AdvertisingResponse& a)
-	:mac_address(a.address),type(static_cast<int>(a.type))
-	{}
-	
-	bool HCIScanner::FilterEntry::operator<(const FilterEntry& f) const
-	{
-		//Simple lexi-sorting
-		if(mac_address < f.mac_address)
-			return true;
-		else if(mac_address == f.mac_address)
-			return type < f.type;
-		else
-			return false;
+		} catch(IOError &) {}
 	}
 
-	vector<uint8_t> HCIScanner::read_with_retry()
-	{
+	HCIScanner::FilterEntry::FilterEntry(const AdvertisingResponse &response):
+		mac_address(response.address), type(static_cast<int>(response.type)) {}
+
+	bool HCIScanner::FilterEntry::operator<(const FilterEntry &entry) const {
+		// Simple lexi-sorting
+		if (mac_address < entry.mac_address)
+			return true;
+
+		if (mac_address == entry.mac_address)
+			return type < entry.type;
+
+		return false;
+	}
+
+	std::vector<uint8_t> HCIScanner::read_with_retry() {
 		int len;
 		std::vector<uint8_t> buf(HCI_MAX_EVENT_SIZE);
 
-
-		while((len = read(hci_fd, buf.data(), buf.size())) < 0)
-		{
-			if(errno == EAGAIN)
+		while ((len = read(hci_fd, buf.data(), buf.size())) < 0) {
+			if (errno == EAGAIN)
 				continue;
-			else if(errno == EINTR)
+
+			if (errno == EINTR)
 				throw Interrupted("interrupted reading HCI packet");
-			else
-				throw IOError("reading HCI packet", errno);
+
+			throw IOError("reading HCI packet", errno);
 		}
 
 		buf.resize(len);
 		return buf;
 	}
 
-	vector<AdvertisingResponse> HCIScanner::get_advertisements()
-	{
-		vector<AdvertisingResponse> adverts = parse_packet(read_with_retry());
+	std::vector<AdvertisingResponse> HCIScanner::get_advertisements() {
+		std::vector<AdvertisingResponse> adverts = parse_packet(read_with_retry());
 		
-		if(software_filtering)
-		{
-			vector<AdvertisingResponse> filtered;
+		if (software_filtering) {
+			std::vector<AdvertisingResponse> filtered;
 
-			for(const auto& a: adverts)
-			{
-				auto r = scanned_devices.insert(FilterEntry(a));
-
-				if(r.second)
-					filtered.emplace_back(move(a));
+			for (const auto &a: adverts) {
+				const auto r = scanned_devices.insert(FilterEntry(a));
+				if (r.second)
+					filtered.emplace_back(std::move(a));
 				else
-					LOG(Debug, "Entry " << a.address << " " << static_cast<int>(a.type) << " found already");
+					LOG(Debug, "Entry " << a.address << ' ' << static_cast<int>(a.type) << " found already");
 			}
 
 			return filtered;
 		}
-		else
-			return adverts;
+
+		return adverts;
 	}
 
 	/*
@@ -454,154 +392,131 @@ namespace BLEPP
 
 	*/
 
-	vector<AdvertisingResponse> parse_event_packet(Span packet);
-	vector<AdvertisingResponse> parse_le_meta_event(Span packet);
-	vector<AdvertisingResponse> parse_le_meta_event_advertisement(Span packet);
+	std::vector<AdvertisingResponse> parse_event_packet(Span packet);
+	std::vector<AdvertisingResponse> parse_le_meta_event(Span packet);
+	std::vector<AdvertisingResponse> parse_le_meta_event_advertisement(Span packet);
 
-	vector<AdvertisingResponse> HCIScanner::parse_packet(const vector<uint8_t>& p)
-	{
-		Span  packet(p);
+	std::vector<AdvertisingResponse> HCIScanner::parse_packet(const std::vector<uint8_t> &p) {
+		Span packet(p);
 		LOG(Debug, to_hex(p));
 
-		if(packet.size() < 1)
-		{
+		if (packet.size() < 1) {
 			LOG(LogLevels::Error, "Empty packet received");
 			return {};
 		}
 
-		uint8_t packet_id = packet.pop_front();
+		const uint8_t packet_id = packet.pop_front();
 
-
-		if(packet_id == HCI_EVENT_PKT)
-		{
+		if (packet_id == HCI_EVENT_PKT) {
 			LOG(Debug, "Event packet received");
 			return parse_event_packet(packet);
 		}
-		else
-		{
-			LOG(LogLevels::Error, "Unknown HCI packet received");
-			throw HCIError("Unknown HCI packet received");
-		}
+
+		LOG(LogLevels::Error, "Unknown HCI packet received");
+		throw HCIError("Unknown HCI packet received");
 	}
 
-	vector<AdvertisingResponse> parse_event_packet(Span packet)
-	{
-		if(packet.size() < 2)
+	std::vector<AdvertisingResponse> parse_event_packet(Span packet) {
+		if (packet.size() < 2)
 			throw HCIScanner::HCIError("Truncated event packet");
-		
-		uint8_t event_code = packet.pop_front();
-		uint8_t length = packet.pop_front();
 
-		
-		if(packet.size() != length)
+		const uint8_t event_code = packet.pop_front();
+		const uint8_t length = packet.pop_front();
+
+		if (packet.size() != length)
 			throw HCIScanner::HCIError("Bad packet length");
 		
-		if(event_code == EVT_LE_META_EVENT)
-		{
-			LOG(Info, "event_code = 0x" << hex << (int)event_code << ": Meta event" << dec);
+		if (event_code == EVT_LE_META_EVENT) {
+			LOG(Info, "event_code = 0x" << std::hex << static_cast<int>(event_code) << ": Meta event" << std::dec);
 			LOGVAR(Info, length);
 
 			return parse_le_meta_event(packet);
 		}
-		else
-		{
-			LOG(Info, "event_code = 0x" << hex << (int)event_code << dec);
-			LOGVAR(Info, length);
-			throw HCIScanner::HCIError("Unexpected HCI event packet");
-		}
+
+		LOG(Info, "event_code = 0x" << std::hex << static_cast<int>(event_code) << std::dec);
+		LOGVAR(Info, length);
+		throw HCIScanner::HCIError("Unexpected HCI event packet");
 	}
 
 
-	vector<AdvertisingResponse> parse_le_meta_event(Span packet)
-	{
-		uint8_t subevent_code = packet.pop_front();
+	std::vector<AdvertisingResponse> parse_le_meta_event(Span packet) {
+		const uint8_t subevent_code = packet.pop_front();
 
-		if(subevent_code == 0x02) // see big blob of comments above
-		{
+		if (subevent_code == 0x02) { // See big blob of comments above
 			LOG(Info, "subevent_code = 0x02: LE Advertising Report Event");
 			return parse_le_meta_event_advertisement(packet);
 		}
-		else
-		{
-			LOGVAR(Info, subevent_code);
-			return {};
-		}
+
+		LOGVAR(Info, subevent_code);
+		return {};
 	}
 
-	vector<AdvertisingResponse> parse_le_meta_event_advertisement(Span packet)
-	{
-		vector<AdvertisingResponse> ret;
+	std::vector<AdvertisingResponse> parse_le_meta_event_advertisement(Span packet) {
+		std::vector<AdvertisingResponse> ret;
 
-		uint8_t num_reports = packet.pop_front();
+		const uint8_t num_reports = packet.pop_front();
 		LOGVAR(Info, num_reports);
 
-		for(int i=0; i < num_reports; i++)
-		{
+		for (int i=0; i < num_reports; i++) {
 			LeAdvertisingEventType event_type = static_cast<LeAdvertisingEventType>(packet.pop_front());
 
-			if(event_type == LeAdvertisingEventType::ADV_IND)
+			if (event_type == LeAdvertisingEventType::ADV_IND)
 				LOG(Info, "event_type = 0x00 ADV_IND, Connectable undirected advertising");
-			else if(event_type == LeAdvertisingEventType::ADV_DIRECT_IND)
+			else if (event_type == LeAdvertisingEventType::ADV_DIRECT_IND)
 				LOG(Info, "event_type = 0x01 ADV_DIRECT_IND, Connectable directed advertising");
-			else if(event_type == LeAdvertisingEventType::ADV_SCAN_IND)
+			else if (event_type == LeAdvertisingEventType::ADV_SCAN_IND)
 				LOG(Info, "event_type = 0x02 ADV_SCAN_IND, Scannable undirected advertising");
-			else if(event_type == LeAdvertisingEventType::ADV_NONCONN_IND)
+			else if (event_type == LeAdvertisingEventType::ADV_NONCONN_IND)
 				LOG(Info, "event_type = 0x03 ADV_NONCONN_IND, Non connectable undirected advertising");
-			else if(event_type == LeAdvertisingEventType::SCAN_RSP)
+			else if (event_type == LeAdvertisingEventType::SCAN_RSP)
 				LOG(Info, "event_type = 0x04 SCAN_RSP, Scan response");
 			else
-				LOG(Warning, "event_type = 0x" << hex << (int)event_type << dec << ", unknown");
+				LOG(Warning, "event_type = 0x" << std::hex << static_cast<int>(event_type) << std::dec << ", unknown");
 			
-			uint8_t address_type = packet.pop_front();
+			const uint8_t address_type = packet.pop_front();
 
-			if(address_type == 0)
+			if (address_type == 0)
 				LOG(Info, "Address type = 0: Public device address");
-			else if(address_type == 1)
+			else if (address_type == 1)
 				LOG(Info, "Address type = 0: Random device address");
 			else
 				LOG(Info, "Address type = 0x" << to_hex(address_type) << ": unknown");
 
-
-			string address;
-			for(int j=0; j < 6; j++)
-			{
-				ostringstream s;
-				s << hex << setw(2) << setfill('0') << (int) packet.pop_front();
-				if(j != 0)
-					s << ":";
-
+			std::string address;
+			for (int j = 0; j < 6; ++j) {
+				std::ostringstream s;
+				s << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(packet.pop_front());
+				if (j != 0)
+					s << ':';
 				address = s.str() + address;
 			}
 
-
 			LOGVAR(Info, address);
 
-			uint8_t length = packet.pop_front();
+			const uint8_t length = packet.pop_front();
 			LOGVAR(Info, length);
-			
 
 			Span data = packet.pop_front(length);
 
 			LOG(Debug, "Data = " << to_hex(data));
 
-			int8_t rssi = packet.pop_front();
+			const int8_t rssi = packet.pop_front();
 
-			if(rssi == 127)
+			if (rssi == 127)
 				LOG(Info, "RSSI = 127: unavailable");
-			else if(rssi <= 20)
-				LOG(Info, "RSSI = " << (int) rssi << " dBm");
+			else if (rssi <= 20)
+				LOG(Info, "RSSI = " << static_cast<int>(rssi) << " dBm");
 			else
-				LOG(Info, "RSSI = " << to_hex((uint8_t)rssi) << " unknown");
+				LOG(Info, "RSSI = " << to_hex(static_cast<uint8_t>(rssi)) << " unknown");
 
-			try{
+			try {
 				AdvertisingResponse rsp;
 				rsp.address = address;
 				rsp.type = event_type;
 				rsp.rssi = rssi;
 				rsp.raw_packet.push_back({data.begin(), data.end()});
 
-				while(data.size() > 0)
-				{
+				while (0 < data.size()) {
 					LOGVAR(Debug, data.size());
 					LOG(Debug, "Packet = " << to_hex(data));
 					//Format is length, type, crap
@@ -614,91 +529,67 @@ namespace BLEPP
 					uint8_t type = chunk[0];
 					LOGVAR(Debug, type);
 
-					if(type == GAP::flags)
-					{
+					if (type == GAP::flags) {
 						rsp.flags = AdvertisingResponse::Flags({chunk.begin(), chunk.end()});
 
 						LOG(Info, "Flags = " << to_hex(rsp.flags->flag_data));
 
-						if(rsp.flags->LE_limited_discoverable)
+						if (rsp.flags->LE_limited_discoverable)
 							LOG(Info, "        LE limited discoverable");
 
-						if(rsp.flags->LE_general_discoverable)
+						if (rsp.flags->LE_general_discoverable)
 							LOG(Info, "        LE general discoverable");
 
-						if(rsp.flags->BR_EDR_unsupported)
+						if (rsp.flags->BR_EDR_unsupported)
 							LOG(Info, "        BR/EDR unsupported");
 
-						if(rsp.flags->simultaneous_LE_BR_host)
+						if (rsp.flags->simultaneous_LE_BR_host)
 							LOG(Info, "        simultaneous LE BR host");
 
-						if(rsp.flags->simultaneous_LE_BR_controller)
+						if (rsp.flags->simultaneous_LE_BR_controller)
 							LOG(Info, "        simultaneous LE BR controller");
-					}
-					else if(type == GAP::incomplete_list_of_16_bit_UUIDs || type == GAP::complete_list_of_16_bit_UUIDs)
-					{
-						rsp.uuid_16_bit_complete = (type == GAP::complete_list_of_16_bit_UUIDs);
+					} else if (type == GAP::incomplete_list_of_16_bit_UUIDs || type == GAP::complete_list_of_16_bit_UUIDs) {
+						rsp.uuid_16_bit_complete = type == GAP::complete_list_of_16_bit_UUIDs;
+						chunk.pop_front(); // Remove the type field
+
+						while (!chunk.empty())
+							rsp.UUIDs.push_back(UUID(chunk.pop_front() + chunk.pop_front() * 256));
+					} else if (type == GAP::incomplete_list_of_128_bit_UUIDs || type == GAP::complete_list_of_128_bit_UUIDs) {
+						rsp.uuid_128_bit_complete = type == GAP::complete_list_of_128_bit_UUIDs;
 						chunk.pop_front(); //remove the type field
 
-						while(!chunk.empty())
-						{
-							uint16_t u = chunk.pop_front() + chunk.pop_front()*256;
-							rsp.UUIDs.push_back(UUID(u));
-						}
-					}
-					else if(type == GAP::incomplete_list_of_128_bit_UUIDs || type == GAP::complete_list_of_128_bit_UUIDs)
-					{
-						rsp.uuid_128_bit_complete = (type == GAP::complete_list_of_128_bit_UUIDs);
-						chunk.pop_front(); //remove the type field
-
-						while(!chunk.empty())
+						while (!chunk.empty())
 							rsp.UUIDs.push_back(UUID::from(att_get_uuid128(chunk.pop_front(16).data())));
-					}
-					else if(type == GAP::shortened_local_name || type == GAP::complete_local_name)
-					{
+					} else if (type == GAP::shortened_local_name || type == GAP::complete_local_name) {
 						chunk.pop_front();
 						AdvertisingResponse::Name n;
-						n.complete = type==GAP::complete_local_name;
-						n.name = string(chunk.begin(), chunk.end());
+						n.complete = type == GAP::complete_local_name;
+						n.name = std::string(chunk.begin(), chunk.end());
 						rsp.local_name = n;
-
-						LOG(Info, "Name (" << (n.complete?"complete":"incomplete") << "): " << n.name);
-					}
-					else if(type == GAP::manufacturer_data)
-					{
+						LOG(Info, "Name (" << (n.complete? "complete" : "incomplete") << "): " << n.name);
+					} else if (type == GAP::manufacturer_data) {
 						chunk.pop_front();
-						rsp.manufacturer_specific_data.push_back({chunk.begin(), chunk.end()});
+						rsp.manufacturer_specific_data.emplace_back(chunk.begin(), chunk.end());
 						LOG(Info, "Manufacturer data: " << to_hex(chunk));
-					}
-					else
-					{
-						rsp.unparsed_data_with_types.push_back({chunk.begin(), chunk.end()});
-
+					} else {
+						rsp.unparsed_data_with_types.emplace_back(chunk.begin(), chunk.end());
 						LOG(Info, "Unparsed chunk " << to_hex(chunk));
 					}
 				}
 
-				if(rsp.UUIDs.size() > 0)
-				{
-					LOG(Info, "UUIDs (128 bit " << (rsp.uuid_128_bit_complete?"complete":"incomplete")
-						  << ", 16 bit " << (rsp.uuid_16_bit_complete?"complete":"incomplete") << " ):");
-
-					for(const auto& uuid: rsp.UUIDs)
+				if (rsp.UUIDs.size() > 0) {
+					LOG(Info, "UUIDs (128 bit " << (rsp.uuid_128_bit_complete? "complete" : "incomplete")
+						<< ", 16 bit " << (rsp.uuid_16_bit_complete? "complete" : "incomplete") << " ):");
+					for (const auto &uuid: rsp.UUIDs)
 						LOG(Info, "    " << to_str(uuid));
 				}
 
 				ret.push_back(rsp);
-
-
-			}
-			catch(out_of_range& r)
-			{
+			} catch (std::out_of_range &r) {
 				LOG(LogLevels::Error, "Corrupted data sent by device " << address);
 			}
 		}
 
 		return ret;
 	}
-
-
 }

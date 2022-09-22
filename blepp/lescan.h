@@ -1,4 +1,3 @@
-
 /*
  *
  *  blepp - Implementation of the Generic ATTribute Protocol
@@ -21,66 +20,71 @@
  *
  */
 
-#ifndef __INC_BLEPP_LESCAN_H
-#define __INC_BLEPP_LESCAN_H
+#ifndef INC_BLEPP_LESCAN_H_
+#define INC_BLEPP_LESCAN_H_
 
-#include <stdexcept>
-#include <vector>
-#include <string>
-#include <stdexcept>
-#include <cstdint>
-#include <set>
-#include <boost/optional.hpp>
-#include <blepp/blestatemachine.h> //for UUID. FIXME mofo
+#include <blepp/blestatemachine.h> // for UUID. FIXME mofo
 #include <bluetooth/hci.h>
+#include <cstdint>
+#include <optional>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <unistd.h>
+#include <vector>
 
-namespace BLEPP
-{
-	enum class LeAdvertisingEventType
-	{	
-		ADV_IND = 0x00, //Connectable undirected advertising 
-						//Broadcast; any device can connect or ask for more information
-		ADV_DIRECT_IND = 0x01, //Connectable Directed
-							   //Targeted; a single known device that can only connect
-		ADV_SCAN_IND = 0x02, //Scannable Undirected
-							 //Purely informative broadcast; devices can ask for more information
-		ADV_NONCONN_IND = 0x03, //Non-Connectable Undirected
-								//Purely informative broadcast; no device can connect or even ask for more information
-		SCAN_RSP = 0x04, //Result coming back after a scan request
+namespace BLEPP {
+	enum class LeAdvertisingEventType {
+		// Connectable undirected advertising
+		// Broadcast; any device can connect or ask for more information
+		ADV_IND = 0x00,
+
+		// Connectable Directed
+		// Targeted; a single known device that can only connect
+		ADV_DIRECT_IND = 0x01,
+
+		// Scannable Undirected
+		// Purely informative broadcast; devices can ask for more information
+		ADV_SCAN_IND = 0x02,
+
+		// Non-Connectable Undirected
+		// Purely informative broadcast; no device can connect or even ask for more information
+		ADV_NONCONN_IND = 0x03,
+
+		// Result coming back after a scan request
+		SCAN_RSP = 0x04,
 	};
 
 	//Is this the best design. I'm not especially convinced.
 	//It seems pretty wretched.
-	struct AdvertisingResponse
-	{
+	struct AdvertisingResponse {
 		std::string address;
 		LeAdvertisingEventType type;
 		int8_t rssi;
-		struct Name
-		{
+
+		struct Name {
 			std::string name;
 			bool complete;
 		};
 
-		struct Flags
-		{
-			bool LE_limited_discoverable=0;
-			bool LE_general_discoverable=0;
-			bool BR_EDR_unsupported=0;
-			bool simultaneous_LE_BR_controller=0;
-			bool simultaneous_LE_BR_host=0;
-
+		struct Flags {
+			bool LE_limited_discoverable = false;
+			bool LE_general_discoverable = false;
+			bool BR_EDR_unsupported = false;
+			bool simultaneous_LE_BR_controller = false;
+			bool simultaneous_LE_BR_host = false;
 			std::vector<uint8_t> flag_data;
-			Flags(std::vector<uint8_t>&&);
+
+			Flags(std::vector<uint8_t> &&);
 		};
 
 		std::vector<UUID> UUIDs;
-		bool uuid_16_bit_complete=0;
-		bool uuid_32_bit_complete=0;
-		bool uuid_128_bit_complete=0;
+		bool uuid_16_bit_complete  = false;
+		bool uuid_32_bit_complete  = false;
+		bool uuid_128_bit_complete = false;
 		
-		boost::optional<Name>  local_name;
-		boost::optional<Flags> flags;
+		std::optional<Name>  local_name;
+		std::optional<Flags> flags;
 
 		std::vector<std::vector<uint8_t>> manufacturer_specific_data;
 		std::vector<std::vector<uint8_t>> service_data;
@@ -88,117 +92,109 @@ namespace BLEPP
 		std::vector<std::vector<uint8_t>> raw_packet;
 	};
 
-	/// Class for scanning for BLE devices
-	/// this must be run as root, because it requires getting packets from the HCI.
-	/// The HCI requires root since it has no permissions on setting filters, so 
+	/// Class for scanning for BLE devices.
+	/// This must be run as root because it requires getting packets from the HCI.
+	/// The HCI requires root since it has no permissions on setting filters, so
 	/// anyone with an open HCI device can sniff all data.
-	class HCIScanner
-	{
-		class FD
-		{
-			private:
-				int fd=-1;
+	class HCIScanner {
+		private:
+			class FD {
+				private:
+					int fd = -1;
 
-			public:
-				operator int () const
-				{
-					return fd;
-				}
-				FD(int i)
-				:fd(i)
-				{
-				}
-				
-				FD()=default;
-				void set(int i)
-				{
-					fd = i;
-				}
+				public:
+					inline operator int() const {
+						return fd;
+					}
 
-				~FD()
-				{
-					if(fd != -1)
-						close(fd);
-				}
-		};
+					FD() = default;
+					FD(int fd_): fd(fd_) {}
 
+					inline void set(int fd_) {
+						fd = fd_;
+					}
+
+					~FD() {
+						if (fd != -1)
+							::close(fd);
+					}
+			};
 
 		public:
-		
-		enum class ScanType
-		{
-			Passive  = 0x00,
-			Active   = 0x01,
-		};
+			enum class ScanType {
+				Passive = 0x00,
+				Active  = 0x01,
+			};
 
-		enum class FilterDuplicates
-		{
-			Off, //Get all events
-			Hardware, //Rely on hardware filtering only. Lower power draw, but can actually send
-			          //duplicates if the device's builtin list gets overwhelmed.
-			Software, //Get all events from the device and filter them by hand.
-			Both      //The best and worst of both worlds. 
-		};
+			enum class FilterDuplicates {
+				// Get all events
+				Off,
 
-		///Generic error exception class
-		class Error: public std::runtime_error
-		{
-			public:
-				Error(const std::string& why);
-		};
+				// Rely on hardware filtering only. Lower power draw, but can actually send
+				// duplicates if the device's builtin list gets overwhelmed.
+				Hardware,
 
-		///Thrown only if a read() is interrupted. Only bother 
-		///handling if you've got a non terminating exception handler
-		class Interrupted: public Error
-		{
-			using Error::Error;
-		};
-		
+				// Get all events from the device and filter them by hand.
+				Software,
 
-		///IO error of some sort. Probably fatal for any bluetooth
-		///based system. Or might be that the dongle was unplugged.
-		class IOError: public Error
-		{
-			public:
-			IOError(const std::string& why, int errno_val);
-		};
-		
-		///HCI device spat out invalid data.
-		///This is not good. Almost certainly fatal.
-		class HCIError: public Error
-		{
-			using Error::Error;
-		};
+				// The best and worst of both worlds.
+				Both,
+			};
 
-		HCIScanner();
-		HCIScanner(bool start);
-		HCIScanner(bool start, FilterDuplicates duplicates, ScanType, std::string device="");
+			/// Generic error exception class
+			class Error: public std::runtime_error {
+				public:
+					Error(const std::string &why);
+			};
 
+			/// Thrown only if a read() is interrupted. Bother handling
+			/// only if you have a non-terminating exception handler.
+			class Interrupted: public Error {
+				using Error::Error;
+			};
 
-		void start();
-		void stop();
-		
-		///get the file descriptor.
-		///Use with select(), poll() or whatever.
-		int get_fd() const;
-		
-		~HCIScanner();
+			/// IO error of some sort. Probably fatal for any Bluetooth-
+			/// based system. Or might be that the dongle was unplugged.
+			class IOError: public Error {
+				public:
+					IOError(const std::string &why, int errno_val);
+			};
 
-		///Blocking call. Use select() on the FD if you don't want to block.
-		///This reads and parses the HCI packets.
-		std::vector<AdvertisingResponse> get_advertisements();
-		
-		///Parse an HCI advertising packet. There's probably not much
-		///reason to call this yourself.
-		static std::vector<AdvertisingResponse> parse_packet(const std::vector<uint8_t>& p);
+			/// The HCI device spat out invalid data.
+			/// This is not good. Almost certainly fatal.
+			class HCIError: public Error {
+				using Error::Error;
+			};
+
+			HCIScanner();
+			HCIScanner(bool start);
+			HCIScanner(bool start, FilterDuplicates, ScanType, const std::string &device = "");
+
+			void start();
+			void stop();
+
+			/// get the file descriptor.
+			/// Use with select(), poll() or whatever.
+			int get_fd() const;
+
+			~HCIScanner();
+
+			/// Blocking call. Use select() on the FD if you don't want to block.
+			/// This reads and parses the HCI packets.
+			std::vector<AdvertisingResponse> get_advertisements();
+
+			/// Parse an HCI advertising packet. There's probably not much
+			/// reason to call this yourself.
+			static std::vector<AdvertisingResponse> parse_packet(const std::vector<uint8_t> &);
 
 		private:
-			struct FilterEntry
-			{
-				explicit FilterEntry(const AdvertisingResponse&);
+			struct FilterEntry {
 				const std::string mac_address;
 				int type;
-				bool operator<(const FilterEntry&) const;
+
+				explicit FilterEntry(const AdvertisingResponse &);
+
+				bool operator<(const FilterEntry &) const;
 			};
 
 			bool hardware_filtering;
@@ -206,10 +202,10 @@ namespace BLEPP
 			ScanType scan_type;
 
 			FD hci_fd;
-			bool running=0;
+			bool running = false;
 			hci_filter old_filter;
 			
-			///Read the HCI data, but don't parse it.
+			/// Read the HCI data, but don't parse it.
 			std::vector<uint8_t> read_with_retry();
 			std::set<FilterEntry> scanned_devices;
 	};
