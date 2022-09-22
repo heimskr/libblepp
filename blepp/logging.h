@@ -78,7 +78,7 @@ namespace BLEPP {
 	#define LOG(X, Y) do { \
 		if (X <= BLEPP::log_level) \
 			log_line_header(X, __FUNCTION__, __LINE__, __FILE__) << Y << std::endl; \
-	} while(0)
+	} while (0)
 
 	struct EnterThenLeave {
 		const char *who;
